@@ -25,7 +25,7 @@ app.use(express.json());
 // Only one CORS middleware with options:
 app.use(
   cors({
-    origin: "https://testschoolcompetency.netlify.app/",
+    origin: "https://testschoolcompetency.netlify.app",
     credentials: true,
   })
 );
