@@ -1,0 +1,8 @@
+{
+  "apps": [
+    {
+      "name": "Bmubarak",
+      "script": "npm start"
+    }
+  ]
+}
