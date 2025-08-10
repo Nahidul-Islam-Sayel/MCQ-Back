@@ -128,7 +128,9 @@ router.post(
       const percentage = total === 0 ? 0 : (score / total) * 100;
       const { certification, proceed } = decideCertification(step, percentage);
 
-      const result = await Result.create({
+      // Upsert: update existing result for userId + step or create new
+      const filter = { userId: userId || null, step };
+      const update = {
         userId: userId || null,
         name,
         email: email || null,
@@ -139,7 +141,18 @@ router.post(
         percentage,
         certification,
         answers,
-      });
+        updatedAt: new Date(),
+      };
+      const options = { upsert: true, new: true, setDefaultsOnInsert: true };
+
+      // findOneAndUpdate returns the updated or created doc
+      const result = await Result.findOneAndUpdate(filter, update, options);
+
+      if (!result) {
+        return res
+          .status(500)
+          .json({ message: "Failed to save or update result" });
+      }
 
       let certificateUrl: string | null = null;
       if (
@@ -226,4 +239,96 @@ router.get("/latest-result", async (req: Request, res: Response) => {
   }
 });
 
+// In your studentExam router file (RouteHandler/studentExam.ts)
+router.get("/all-results", async (req, res) => {
+  try {
+    const results = await Result.find().sort({ createdAt: -1 });
+    // Map results to include certificateUrl if file exists
+    const mappedResults = results.map((r) => ({
+      _id: r._id,
+      userId: r.userId,
+      name: r.name,
+      email: r.email,
+      step: r.step,
+      level: r.level,
+      score: r.score,
+      total: r.total,
+      percentage: r.percentage,
+      certification: r.certification,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      certificateUrl: r._id ? `/certs/certificate_${r._id}.pdf` : null,
+    }));
+
+    res.json({ results: mappedResults });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.get("/user-exams/:userid", async (req: Request, res: Response) => {
+  const { userid } = req.params;
+
+  if (!userid) {
+    return res.status(400).json({ error: "User ID is required" });
+  }
+
+  try {
+    // Find all exam results for this user, sorted by creation date descending
+    const results = await Result.find({ userId: userid }).sort({
+      createdAt: -1,
+    });
+
+    // Map results to send only the needed fields for frontend
+    const mappedResults = results.map((r) => ({
+      _id: r._id,
+      step: r.step,
+      level: r.level,
+      score: r.score,
+      total: r.total,
+      percentage: r.percentage,
+      certification: r.certification,
+      date: r.createdAt,
+    }));
+
+    return res.json(mappedResults);
+  } catch (error) {
+    console.error("Error fetching user exam attempts:", error);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.get("/user-exams/:userid", async (req: Request, res: Response) => {
+  try {
+    const { userid } = req.params;
+    if (!userid) return res.status(400).json({ error: "userid required" });
+
+    const results = await Result.find({ userId: userid }).sort({
+      createdAt: -1,
+    });
+
+    const mapped = results.map((r) => {
+      const filename = `certificate_${r._id}.pdf`;
+      const certPath = path.join(process.cwd(), "certs", filename);
+      const exists = fs.existsSync(certPath);
+      return {
+        _id: r._id,
+        step: r.step,
+        level: r.level,
+        score: r.score,
+        total: r.total,
+        percentage: r.percentage,
+        certification: r.certification,
+        date: r.createdAt,
+        certificateUrl: exists ? `/certs/${filename}` : null,
+      };
+    });
+
+    return res.json(mapped);
+  } catch (err) {
+    console.error("Error fetching user exams:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
 export default router;

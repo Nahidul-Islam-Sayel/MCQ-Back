@@ -24,7 +24,6 @@ export async function sendVerificationEmail(email: string, code: string) {
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log("Email sent:", info.messageId);
   } catch (error) {
     console.error("Error sending email:", error);
     throw error; // Rethrow or handle appropriately

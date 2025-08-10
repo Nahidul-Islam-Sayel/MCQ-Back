@@ -54,6 +54,4 @@ const errorHandler = (
 
 app.use(errorHandler);
 
-console.log("SMTP_HOST:", process.env.SMTP_HOST);
-
 export default app;

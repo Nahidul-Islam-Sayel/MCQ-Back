@@ -91,8 +91,6 @@ router.post("/", async (req: Request, res: Response) => {
 router.put("/:id", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    console.log("PUT /:id called with id:", id); // Debug log
-
     const { step, level, questionText, options, correctOptionIndex } = req.body;
 
     if (
@@ -130,8 +128,6 @@ router.put("/:id", async (req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    console.log("DELETE /:id called with id:", id); // Debug log
-
     const removed = await Question.findByIdAndDelete(id);
     if (!removed) {
       return res.status(404).json({ message: "Question not found" });

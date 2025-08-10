@@ -10,7 +10,7 @@ const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET!;
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET!;
 
 const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
-
+const RESET_CODE_EXPIRY_MINUTES = 10;
 // Token expiration times
 const ACCESS_TOKEN_EXPIRES = "15m";
 const REFRESH_TOKEN_EXPIRES = "7d";
@@ -297,6 +297,170 @@ export async function verifyOtp(req: Request, res: Response) {
     return res.json({ success: true, accessToken, userid: user._id });
   } catch (error) {
     console.error(error);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+// Reset password (authenticated users only)
+export async function resetPassword(req: Request, res: Response) {
+  try {
+    const { oldPassword, newPassword } = req.body;
+
+    if (!oldPassword || !newPassword) {
+      return res
+        .status(400)
+        .json({ success: false, error: "All fields are required" });
+    }
+
+    // Extract user ID from the access token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res
+        .status(401)
+        .json({ success: false, error: "No token provided" });
+    }
+    const token = authHeader.split(" ")[1];
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, ACCESS_TOKEN_SECRET) as { userId: string };
+    } catch {
+      return res
+        .status(403)
+        .json({ success: false, error: "Invalid or expired token" });
+    }
+
+    // Find user by decoded ID
+    const user = await User.findById(decoded.userId);
+    if (!user || !user.password) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    // Compare old password
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Old password is incorrect" });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    user.password = hashedPassword;
+    await user.save();
+
+    return res.json({ success: true, message: "Password reset successfully" });
+  } catch (error) {
+    console.error("Error resetting password:", error);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+
+export async function sendResetCode(req: Request, res: Response) {
+  try {
+    const { email } = req.body;
+    if (!email)
+      return res.status(400).json({ success: false, error: "Email required" });
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      // Don't reveal whether email exists for privacy — but client needs real user flow.
+      // If you want to inform user, return 404. Here we return 400.
+      return res
+        .status(400)
+        .json({ success: false, error: "User with this email not found" });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiryDate = new Date(
+      Date.now() + RESET_CODE_EXPIRY_MINUTES * 60 * 1000
+    );
+
+    user.verificationCode = code;
+    user.verificationCodeExpires = expiryDate;
+    await user.save();
+
+    // sendVerificationEmail already present in your project
+    await sendVerificationEmail(email, code);
+
+    return res.json({ success: true, message: "Reset code sent to email." });
+  } catch (err) {
+    console.error("sendResetCode error:", err);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+
+export async function verifyResetCode(req: Request, res: Response) {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code)
+      return res
+        .status(400)
+        .json({ success: false, error: "Email and code required" });
+
+    const user = await User.findOne({ email });
+    if (!user)
+      return res.status(400).json({ success: false, error: "User not found" });
+
+    if (!user.verificationCode || user.verificationCode !== code) {
+      return res.status(400).json({ success: false, error: "Invalid code" });
+    }
+
+    if (
+      user.verificationCodeExpires &&
+      user.verificationCodeExpires < new Date()
+    ) {
+      return res.status(400).json({ success: false, error: "Code expired" });
+    }
+
+    // Optionally clear code here or keep it until password is set. We'll allow it but keep it valid.
+    return res.json({ success: true, message: "Code verified" });
+  } catch (err) {
+    console.error("verifyResetCode error:", err);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+
+export async function resetPasswordWithCode(req: Request, res: Response) {
+  try {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword)
+      return res.status(400).json({
+        success: false,
+        error: "Email, code and new password required",
+      });
+
+    const user = await User.findOne({ email });
+    if (!user)
+      return res.status(400).json({ success: false, error: "User not found" });
+
+    if (!user.verificationCode || user.verificationCode !== code) {
+      return res.status(400).json({ success: false, error: "Invalid code" });
+    }
+
+    if (
+      user.verificationCodeExpires &&
+      user.verificationCodeExpires < new Date()
+    ) {
+      return res.status(400).json({ success: false, error: "Code expired" });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(newPassword, salt);
+    user.password = hashed;
+
+    // clear OTP/code fields
+    user.verificationCode = undefined;
+    user.verificationCodeExpires = undefined;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "Password updated successfully",
+    });
+  } catch (err) {
+    console.error("resetPasswordWithCode error:", err);
     return res.status(500).json({ success: false, error: "Server error" });
   }
 }
